@@ -1,0 +1,27 @@
+{
+  "name": "scala",
+  "argv": [
+    "/home/niko/.sdkman/candidates/scala/3.7.4/libexec/scala-cli",
+    "--cli-default-scala-version",
+    "3.7.4",
+    "--repository",
+    "file:///home/niko/.sdkman/candidates/scala/current/maven2",
+    "--prog-name",
+    "scala",
+    "--skip-cli-updates",
+    "bsp",
+    "--json-options",
+    "/home/niko/Code-Area/once-only-sim/.scala-build/ide-options-v2.json",
+    "--json-launcher-options",
+    "/home/niko/Code-Area/once-only-sim/.scala-build/ide-launcher-options.json",
+    "--envs-file",
+    "/home/niko/Code-Area/once-only-sim/.scala-build/ide-envs.json",
+    "/home/niko/Code-Area/once-only-sim/TicketTest.scala"
+  ],
+  "version": "1.9.1",
+  "bspVersion": "2.1.1",
+  "languages": [
+    "scala",
+    "java"
+  ]
+}

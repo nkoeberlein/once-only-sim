@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ScalaCompilerConfiguration">
+    <option name="separateProdTestSources" value="true" />
+    <profile name="sbt 1" modules="once-only-sim,once-only-sim.main,once-only-sim.test,once-only-sim_3706,once-only-sim_3706.main,once-only-sim_3706.test" />
+  </component>
+</project>

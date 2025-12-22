@@ -1,0 +1,57 @@
+sequenceDiagram
+    participant Police as PoliceClient
+    participant SS_P as SS-POLIZEI
+    participant SS_K as SS-KFZ
+    participant VR as VehicleRegistry
+    participant SS_E as SS-EMA
+    participant RR as ResidenceRegistry
+    participant Log as DataAccessLog
+
+    Note over Police,Log: Strafzettel-Erstellung für Kennzeichen M-AB1234
+
+%% === SCHRITT 1: Halterabfrage ===
+    Note over Police,VR: Schritt 1: Halterabfrage bei KFZ-Zulassung
+
+    Police->>SS_P: sendRequest("KFZ-ZULASSUNG", "get-vehicle-owner", json)
+
+    SS_P->>SS_K: XRoadMessage(Request)
+
+    Note over SS_K: Prüfe Access Control List<br/>POLIZEI darf get-vehicle-owner nutzen
+    SS_K->>VR: handleRequest(message)
+
+    VR->>VR: vehicles.get("M-AB1234")
+    VR->>VR: VehicleOwnerResponse(citizenId: "DE-001")
+    VR-->>SS_K: XRoadMessage(Response, citizenId: "DE-001")
+
+    SS_K->>SS_K: logDataAccess(request, response)
+    SS_K->>Log: add(DataAccessLog)
+    Note over Log: citizenId: DE-001<br/>consumer: POLIZEI<br/>provider: KFZ-ZULASSUNG<br/>service: get-vehicle-owner
+
+    SS_K-->>SS_P: XRoadMessage(Response)
+    SS_P-->>Police: Right(json: citizenId "DE-001")
+
+%% === SCHRITT 2: Adressabfrage ===
+    Note over Police,RR: Schritt 2: Adressabfrage beim Einwohnermeldeamt
+
+    Police->>SS_P: sendRequest("EINWOHNERMELDEAMT", "get-citizen-data", json)
+
+    SS_P->>SS_E: XRoadMessage(Request)
+
+    Note over SS_E: Prüfe Access Control List<br/>POLIZEI darf get-citizen-data nutzen
+    SS_E->>RR: handleRequest(message)
+
+    RR->>RR: citizens.get("DE-001")
+    RR->>RR: CitizenDataResponse(name, address, ...)
+    RR-->>SS_E: XRoadMessage(Response, CitizenData)
+
+    SS_E->>SS_E: logDataAccess(request, response)
+    SS_E->>Log: add(DataAccessLog)
+    Note over Log: citizenId: DE-001<br/>consumer: POLIZEI<br/>provider: EINWOHNERMELDEAMT<br/>service: get-citizen-data
+
+    SS_E-->>SS_P: XRoadMessage(Response)
+    SS_P-->>Police: Right(json: CitizenData)
+
+%% === SCHRITT 3: Verarbeitung ===
+    Note over Police: Strafzettel erstellt:<br/>Kennzeichen: M-AB1234<br/>Halter: Anna Schmidt<br/>Adresse: Hauptstraße 42<br/>Betrag: 25,00 EUR
+
+    Note over Police,Log: Alle Datenzugriffe wurden protokolliert (2 Einträge)
