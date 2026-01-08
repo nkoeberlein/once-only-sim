@@ -4,28 +4,48 @@
 
 ```mermaid
 classDiagram
-    %% ==================== MAIN APPLICATION ====================
+%% ==================== MAIN APPLICATION ====================
     class Main {
-        -Option~CentralServer~ centralServer
-        -Map~String, SecurityServer~ securityServers
-        -Map~String, Any~ clients
-        -Boolean isInitialized
+        -Option~SimulationContext~ context
         +main(args: Array~String~) void
         -runEventLoop() void
+        -withContext(f: SimulationContext) void
         -startSimulation() void
+        -restartSimulation() void
         -policeTicketHunt() void
         -showDataTracker() void
         -showStatus() void
-        -checkInitialized() Boolean
     }
 
-    %% ==================== CORE LAYER ====================
+    class SimulationContext {
+        -Option~CentralServer~ centralServer
+        -Option~SecurityServer~ ssPolice
+        -Option~SecurityServer~ ssResidence
+        -Option~SecurityServer~ ssVehicle
+        -Option~SecurityServer~ ssPortal
+        -Option~PoliceClient~ policeClient
+        -Option~ResidenceRegistry~ residenceRegistry
+        -Option~VehicleRegistry~ vehicleRegistry
+        -Option~CitizenPortal~ citizenPortal
+        +initialize() void
+        -initSS(ss: SecurityServer, cs: CentralServer, clientName: String) void
+    }
+
+%% ==================== CORE LAYER ====================
     class CentralServer {
         -Map~String, ServiceConfig~ config
         +getConfig(clientType: String) Option~ServiceConfig~
         +findSecurityServer(clientType: String) Option~String~
         +listAllServices() void
     }
+
+    class Constants {
+        <<object>>
+        +Services Object
+        +Clients Object
+    }
+
+    note for Constants "Services:\n- GetCitizenData\n- UpdateCitizenData\n- CheckLicensePlate\n- RegisterVehicle\n- GetCitizenVehicles\n- DeregisterVehicle\n- GetVehicleOwner\n\nClients:\n- CitizenPortal\n- VehicleRegistry\n- ResidenceRegistry\n- Police"
 
     class ServiceConfig {
         +String clientName
@@ -34,14 +54,20 @@ classDiagram
     }
 
     class SecurityServer {
-        +String name
-        +String clientType
+        -String name
+        -String clientType
         -CentralServer centralServer
         -Map~String, SecurityServer~ securityServers
+        -Option~Client~ client
+        -String UnknownId
+        -String UnknownPurpose
+        -Map~String, Set~String~~ accessControlList
+        +registerClient(c: Client) void
+        -pullGlobalConfig() void
         +registerPeer(peer: SecurityServer) void
-        +sendRequest(message: XRoadMessage) Option~XRoadMessage~
-        +receiveRequest(message: XRoadMessage) Option~XRoadMessage~
-        -logDataAccess(message: XRoadMessage) void
+        +sendRequest(recipient: String, service: String, payload: String) Either~String, String~
+        +receiveRequest(message: XRoadMessage) Either~String, XRoadMessage~
+        -logDataAccess(request: XRoadMessage, response: Option~XRoadMessage~) boolean
     }
 
     class XRoadMessage {
@@ -50,9 +76,9 @@ classDiagram
         +String sender
         +String recipient
         +String service
-        +Map~String, String~ payload
+        +String payload
         +LocalDateTime timestamp
-        +createResponse(responsePayload: Map~String, String~) XRoadMessage
+        +createResponse(responsePayload: String) XRoadMessage
     }
 
     class MessageType {
@@ -61,64 +87,77 @@ classDiagram
         Response
     }
 
-    %% ==================== CLIENT LAYER ====================
+%% ==================== CLIENT LAYER ====================
     class Client {
-        <<trait>>
+        <<abstract>>
         +String name
         +String clientType
         +Option~SecurityServer~ securityServer
         +attachSecurityServer(ss: SecurityServer) void
-        #sendMessage(recipient: String, service: String, payload: Map~String, String~) Option~XRoadMessage~
+        +handleRequest(message: XRoadMessage)* XRoadMessage
+        #sendServiceRequest(recipient: String, service: String, payload: String) Either~String, String~
     }
 
     class PoliceClient {
+        +String name = "Polizei München"
+        +String clientType = Constants.Clients.Police
         -VehicleRegistry vehicleRegistry
         -ResidenceRegistry residenceRegistry
-        +String name
-        +String clientType
         +processTicket(licensePlate: String) void
+        +handleRequest(message: XRoadMessage) XRoadMessage
     }
 
     class CitizenPortal {
-        -ResidenceRegistry residenceRegistry
         +String name
         +String clientType
+        -ResidenceRegistry residenceRegistry
         +showPortal() void
+        -printHeader(citizen: Citizen, text: String) void
         -showCitizenMenu(citizen: Citizen) void
         -changeAddress(citizen: Citizen) void
-        -showDataAccess(citizenId: String) void
+        -showDataAccess(citizen: Citizen) void
+        -registerVehicle(citizen: Citizen) void
+        -deregisterVehicle(citizen: Citizen) void
+        +handleRequest(message: XRoadMessage) XRoadMessage
     }
 
     class ResidenceRegistry {
+        +String name = "Einwohnermeldeamt München"
+        +String clientType = Constants.Clients.ResidenceRegistry
         -Map~String, Citizen~ citizens
-        +String name
-        +String clientType
         +getCitizen(citizenId: String) Option~Citizen~
-        +updateAddress(citizenId: String, newAddress: String) Boolean
+        +updateAddress(citizenId: String, newAddress: String) boolean
+        -isValidAddress(address: String) boolean
         +handleRequest(message: XRoadMessage) XRoadMessage
         +listAllCitizens() void
     }
 
     class VehicleRegistry {
+        +String name = "KFZ-Zulassungsstelle München"
+        +String clientType = Constants.Clients.VehicleRegistry
         -Map~String, Vehicle~ vehicles
-        +String name
-        +String clientType
         +getVehicleOwner(licensePlate: String) Option~String~
         +handleRequest(message: XRoadMessage) XRoadMessage
         +listAllVehicles() void
     }
 
-    %% ==================== DOMAIN LAYER ====================
+%% ==================== DOMAIN LAYER ====================
     class Citizen {
-        +String id
-        +String name
-        +String address
-        +String dateOfBirth
+        -String id
+        -String firstname
+        -String surname
+        -String nationality
+        -String address
+        -String dateOfBirth
+        -String placeOfBirth
+        +fullName() String
+        +birthDetails(): String
     }
 
     class Vehicle {
         +String licensePlate
-        +String ownerId
+        +String citizenId
+        +Int vin
         +String brand
         +String model
     }
@@ -130,20 +169,41 @@ classDiagram
         +String provider
         +String dataTransferred
         +String purpose
+        -DateTimeFormatter formatter
         +toString() String
     }
 
-    class DataAccessLogObject {
+    class DataAccessLog_Object {
         <<object>>
         -List~DataAccessLog~ logs
+        -String logFile = "logs.json"
+        -RW~DataAccessLog~ rw
+        -RW~LocalDateTime~ rwDateTime
         +add(log: DataAccessLog) void
         +getLogsForCitizen(citizenId: String) List~DataAccessLog~
         +getAllLogs() List~DataAccessLog~
+        -saveLogs() void
+        -loadLogs() List~DataAccessLog~
     }
 
-    %% ==================== UI LAYER ====================
+    DataAccessLog_Object ..> DataAccessLog : manages
+
+%% ==================== UI LAYER ====================
     class Terminal {
         <<object>>
+        -String RESET
+        -String BOLD
+        -String RED
+        -String GREEN
+        -String YELLOW
+        -String BLUE
+        -String MAGENTA
+        -String CYAN
+        -String WHITE
+        -String BG_RED
+        -String BG_GREEN
+        -String BG_BLUE
+        -String BG_CYAN
         +clearScreen() void
         +printHeader(text: String) void
         +printSubHeader(text: String) void
@@ -155,48 +215,64 @@ classDiagram
         +printLandingScreen() void
         +printHelp() void
         +printBox(lines: List~String~, color: String) void
+        +pressEnter() boolean
+        +newLine() void
     }
 
-    %% ==================== RELATIONSHIPS ====================
-    
-    %% Main relationships
-    Main --> CentralServer : creates
-    Main --> SecurityServer : manages
-    Main --> Client : orchestrates
-    Main --> Terminal : uses
+%% ==================== RELATIONSHIPS ====================
 
-    %% Core layer relationships
-    CentralServer --> ServiceConfig : contains
-    SecurityServer --> CentralServer : queries
-    SecurityServer --> XRoadMessage : sends/receives
-    SecurityServer --> DataAccessLogObject : logs to
-    XRoadMessage --> MessageType : has
+%% === MAIN ORCHESTRATION ===
+    Main --> SimulationContext : creates & uses
+    SimulationContext --> CentralServer : creates & manages
+    SimulationContext --> SecurityServer : creates & wires (4x)
+    SimulationContext --> PoliceClient : creates
+    SimulationContext --> ResidenceRegistry : creates
+    SimulationContext --> VehicleRegistry : creates
+    SimulationContext --> CitizenPortal : creates
+    SimulationContext ..> Terminal : uses for UI
 
-    %% Client inheritance
-    Client <|-- PoliceClient : implements
-    Client <|-- CitizenPortal : implements
-    Client <|-- ResidenceRegistry : implements
-    Client <|-- VehicleRegistry : implements
+%% === CORE LAYER ===
+    CentralServer *-- ServiceConfig : contains
+    SecurityServer --> CentralServer : pulls config from
+    SecurityServer o-- SecurityServer : peers with (mesh network)
+    SecurityServer --> Client : routes to
+    SecurityServer ..> XRoadMessage : sends/receives
+    SecurityServer ..> DataAccessLog_Object : logs to
+    XRoadMessage --> MessageType : has type
 
-    %% Client dependencies
-    Client --> SecurityServer : uses
-    Client --> XRoadMessage : sends/receives
-    PoliceClient --> VehicleRegistry : queries
-    PoliceClient --> ResidenceRegistry : queries
-    CitizenPortal --> ResidenceRegistry : uses
-    ResidenceRegistry --> Citizen : manages
-    VehicleRegistry --> Vehicle : manages
+%% === CLIENT INHERITANCE ===
+    Client <|-- PoliceClient
+    Client <|-- CitizenPortal
+    Client <|-- ResidenceRegistry
+    Client <|-- VehicleRegistry
 
-    %% Domain relationships
-    DataAccessLogObject --> DataAccessLog : stores
-    Vehicle --> Citizen : ownerId references
+%% === CLIENT DEPENDENCIES ===
+    Client --> SecurityServer : attached to
+    Client ..> XRoadMessage : handles
+    PoliceClient --> VehicleRegistry : constructor dependency
+    PoliceClient --> ResidenceRegistry : constructor dependency
+    CitizenPortal --> ResidenceRegistry : constructor dependency
 
-    %% UI usage
-    PoliceClient --> Terminal : logs
-    CitizenPortal --> Terminal : logs
-    ResidenceRegistry --> Terminal : logs
-    VehicleRegistry --> Terminal : logs
-    SecurityServer --> Terminal : logs
+%% === CLIENT COMMUNICATION (via X-Road) ===
+    PoliceClient ..> VehicleRegistry : queries
+    PoliceClient ..> ResidenceRegistry : queries
+    CitizenPortal ..> VehicleRegistry : queries
+
+%% === DOMAIN MANAGEMENT ===
+    ResidenceRegistry o-- Citizen : manages
+    VehicleRegistry o-- Vehicle : manages
+    Vehicle --> Citizen : references
+
+%% === DATA ACCESS LOGGING ===
+    DataAccessLog_Object *-- DataAccessLog : stores
+    DataAccessLog --> Citizen : references
+
+%% === UI/LOGGING ===
+    PoliceClient ..> Terminal : logs
+    CitizenPortal ..> Terminal : logs
+    ResidenceRegistry ..> Terminal : logs
+    VehicleRegistry ..> Terminal : logs
+    SecurityServer ..> Terminal : logs
 ```
 
 ## Komponenten-Übersicht
@@ -290,8 +366,6 @@ graph TB
 
 ```mermaid
 sequenceDiagram
-    actor User
-    participant Main
     participant Police as PoliceClient
     participant SS_P as SS-POLIZEI
     participant SS_K as SS-KFZ
@@ -299,43 +373,55 @@ sequenceDiagram
     participant SS_E as SS-EMA
     participant RR as ResidenceRegistry
     participant Log as DataAccessLog
-    participant Term as Terminal
 
-    User->>Main: police-tickethunt
-    Main->>User: Kennzeichen eingeben
-    User->>Main: M-AB-1234
-    Main->>Police: processTicket("M-AB-1234")
-    
-    Police->>Term: logInfo("Starte Halterabfrage")
-    Police->>SS_P: sendRequest(XRoadMessage)
-    Note over SS_P: service: get-vehicle-owner
-    SS_P->>Term: logXRoad("Sende Nachricht")
-    SS_P->>SS_K: sendRequest(message)
+    Note over Police,Log: Strafzettel-Erstellung für Kennzeichen M-AB1234
+
+%% === SCHRITT 1: Halterabfrage ===
+    Note over Police,VR: Schritt 1: Halterabfrage bei KFZ-Zulassung
+
+    Police->>SS_P: sendRequest("KFZ-ZULASSUNG", "get-vehicle-owner", json)
+
+    SS_P->>SS_K: XRoadMessage(Request)
+
+    Note over SS_K: Prüfe Access Control List<br/>POLIZEI darf get-vehicle-owner nutzen
     SS_K->>VR: handleRequest(message)
-    VR->>VR: vehicles.get("M-AB-1234")
-    VR->>Term: logSuccess("Halter gefunden")
-    VR-->>SS_K: XRoadMessage(ownerId: "DE-BG-2001-M-001")
+
+    VR->>VR: vehicles.get("M-AB1234")
+    VR->>VR: VehicleOwnerResponse(citizenId: "DE-001")
+    VR-->>SS_K: XRoadMessage(Response, citizenId: "DE-001")
+
+    SS_K->>SS_K: logDataAccess(request, response)
     SS_K->>Log: add(DataAccessLog)
-    SS_K-->>SS_P: Response
-    SS_P-->>Police: Response
-    
-    Police->>Term: logSuccess("Halter-ID ermittelt")
-    Police->>SS_P: sendRequest(XRoadMessage)
-    Note over SS_P: service: get-citizen-data
-    SS_P->>Term: logXRoad("Sende Nachricht")
-    SS_P->>SS_E: sendRequest(message)
+    Note over Log: citizenId: DE-001<br/>consumer: POLIZEI<br/>provider: KFZ-ZULASSUNG<br/>service: get-vehicle-owner
+
+    SS_K-->>SS_P: XRoadMessage(Response)
+    SS_P-->>Police: Right(json: citizenId "DE-001")
+
+%% === SCHRITT 2: Adressabfrage ===
+    Note over Police,RR: Schritt 2: Adressabfrage beim Einwohnermeldeamt
+
+    Police->>SS_P: sendRequest("EINWOHNERMELDEAMT", "get-citizen-data", json)
+
+    SS_P->>SS_E: XRoadMessage(Request)
+
+    Note over SS_E: Prüfe Access Control List<br/>POLIZEI darf get-citizen-data nutzen
     SS_E->>RR: handleRequest(message)
-    RR->>RR: citizens.get("DE-BG-2001-M-001")
-    RR->>Term: logSuccess("Daten gefunden")
-    RR-->>SS_E: XRoadMessage(address: "Musterstraße 1")
+
+    RR->>RR: citizens.get("DE-001")
+    RR->>RR: CitizenDataResponse(name, address, ...)
+    RR-->>SS_E: XRoadMessage(Response, CitizenData)
+
+    SS_E->>SS_E: logDataAccess(request, response)
     SS_E->>Log: add(DataAccessLog)
-    SS_E-->>SS_P: Response
-    SS_P-->>Police: Response
-    
-    Police->>Term: printBox("STRAFZETTEL")
-    Police->>Term: logSuccess("Strafzettel erstellt")
-    Police-->>Main: done
-    Main-->>User: Vorgang abgeschlossen
+    Note over Log: citizenId: DE-001<br/>consumer: POLIZEI<br/>provider: EINWOHNERMELDEAMT<br/>service: get-citizen-data
+
+    SS_E-->>SS_P: XRoadMessage(Response)
+    SS_P-->>Police: Right(json: CitizenData)
+
+%% === SCHRITT 3: Verarbeitung ===
+    Note over Police: Strafzettel erstellt:<br/>Kennzeichen: M-AB1234<br/>Halter: Anna Schmidt<br/>Adresse: Hauptstraße 42<br/>Betrag: 25,00 EUR
+
+    Note over Police,Log: Alle Datenzugriffe wurden protokolliert (2 Einträge)
 ```
 
 ## Package-Diagramm
@@ -343,13 +429,13 @@ sequenceDiagram
 ```mermaid
 graph LR
     subgraph "once-only-sim"
-        subgraph "main"
-            MAIN[Main.scala]
-        end
-
+        
+        MAIN[Main.scala]
+        
         subgraph "core"
             CS[CentralServer.scala]
             SS[SecurityServer.scala]
+            CONFIG[ServiceConfig.scala]
             XRM[XRoadMessage.scala]
         end
 
@@ -456,17 +542,17 @@ graph TB
         SS4_INST["ssPortal: SecurityServer<br/>name: SS-PORTAL<br/>clientType: BUERGERPORTAL"]
         
         PC_INST["policeClient: PoliceClient<br/>name: Polizei München"]
-        RR_INST["residenceRegistry: ResidenceRegistry<br/>citizens: Map(3 entries)"]
-        VR_INST["vehicleRegistry: VehicleRegistry<br/>vehicles: Map(3 entries)"]
+        RR_INST["residenceRegistry: ResidenceRegistry<br/>citizens: Map(8 entries)"]
+        VR_INST["vehicleRegistry: VehicleRegistry<br/>vehicles: Map(10 entries)"]
         CP_INST["citizenPortal: CitizenPortal"]
         
-        CIT1["Citizen<br/>DE-BG-2001-M-001<br/>Max Mustermann"]
-        CIT2["Citizen<br/>DE-BG-1995-F-042<br/>Erika Musterfrau"]
-        CIT3["Citizen<br/>DE-BG-1988-M-123<br/>Hans Schmidt"]
+        CIT1["Citizen<br/>DE-001<br/>Anna Schmidt"]
+        CIT2["Citizen<br/>DE-002<br/>Lukas Müller"]
+        CIT3["Citizen<br/>DE-003<br/>Sophie Weber"]
         
-        VEH1["Vehicle<br/>M-AB-1234<br/>BMW 320d"]
-        VEH2["Vehicle<br/>M-XY-5678<br/>Audi A4"]
-        VEH3["Vehicle<br/>M-CD-9999<br/>Mercedes C-Klasse"]
+        VEH1["Vehicle<br/>M-AB1234<br/>BMW 3er"]
+        VEH2["Vehicle<br/>B-CD5678<br/>VW Golf"]
+        VEH3["Vehicle<br/>HH-EF9012<br/>Mercedes C-Klasse"]
     end
     
     CS_INST -.-> SS1_INST
